@@ -142,18 +142,18 @@ int main(int argc, char *argv[])
     srand(time(NULL));
     for (int i = 0; i < n; i++)
     {
-        arr[i] = rand() % 1000000; // Generate random numbers between 0 and 999999
+        arr[i] = rand(); // Generate random numbers between 0 and 999999
     }
 
-    double start_time = MPI_Wtime();
+    double start_time, end_time;
+    start_time = MPI_Wtime();
     parallel_quicksort(arr, n, rank, size);
-    double end_time = MPI_Wtime();
+    end_time = MPI_Wtime();
 
     if (rank == 0)
     {
-        printf("Execution time (MPI + OpenCL): %f seconds\n", end_time - start_time);
-        // Uncomment the following line to print the sorted array
-        // for (int i = 0; i < n; i++) printf("%d ", arr[i]);
+        double execution_time_us = (end_time - start_time) * 1000000;
+        printf("Execution time (MPI + OpenCL): %.0f microseconds\n", execution_time_us);
     }
 
     MPI_Finalize();
