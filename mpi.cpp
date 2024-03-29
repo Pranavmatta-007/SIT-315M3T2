@@ -1,107 +1,75 @@
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <cstdlib>
 #include <mpi.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#define MAX_SIZE 1000000 // Maximum size of the array
-// Function to swap two elements
-void swap(int *a, int *b)
-{
-    int temp = *a;
-    *a = *b;
-    *b = temp;
+#include <algorithm>
+
+using namespace std;
+using namespace std::chrono;
+
+void exchange(int &x, int &y) {
+    int temp = x;
+    x = y;
+    y = temp;
 }
 
-// Partition function for Quicksort
-int partition(int arr[], int low, int high)
-{
+int divide(vector<int> &arr, int low, int high) {
     int pivot = arr[high];
-    int i = (low - 1);
-    for (int j = low; j <= high - 1; j++)
-    {
-        if (arr[j] < pivot)
-        {
+    int i = low - 1;
+    for (int j = low; j < high; j++) {
+        if (arr[j] < pivot) {
             i++;
-            swap(&arr[i], &arr[j]);
+            exchange(arr[i], arr[j]);
         }
     }
-    swap(&arr[i + 1], &arr[high]);
-    return (i + 1);
+    exchange(arr[i + 1], arr[high]);
+    return i + 1;
 }
 
-// Quicksort function
-void quicksort(int arr[], int low, int high)
-{
-    if (low < high)
-    {
-        int pi = partition(arr, low, high);
-        quicksort(arr, low, pi - 1);
-        quicksort(arr, pi + 1, high);
-    }
-}
-// Parallel Quicksort using MPI
-void parallel_quicksort(int arr[], int n, int rank, int size)
-{
-    int chunk_size = n / size;
-    int start = rank * chunk_size;
-    int end = (rank == size - 1) ? n : start + chunk_size;
-    quicksort(arr, start, end - 1);
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    if (rank == 0)
-    {
-        int *temp = (int *)malloc(n * sizeof(int));
-        int *recvcounts = (int *)malloc(size * sizeof(int));
-        int *displs = (int *)malloc(size * sizeof(int));
-        int offset = 0;
-        for (int i = 0; i < size; i++)
-        {
-            int chunk_start = i * chunk_size;
-            int chunk_end = (i == size - 1) ? n : chunk_start + chunk_size;
-            recvcounts[i] = chunk_end - chunk_start;
-            displs[i] = offset;
-            offset += recvcounts[i];
-        }
-
-        MPI_Gatherv(arr, end - start, MPI_INT, temp, recvcounts, displs, MPI_INT, 0, MPI_COMM_WORLD);
-        quicksort(temp, 0, n - 1);
-        for (int i = 0; i < n; i++)
-        {
-            arr[i] = temp[i];
-        }
-
-        free(temp);
-        free(recvcounts);
-        free(displs);
-    }
-    else
-    {
-        MPI_Gatherv(arr, end - start, MPI_INT, NULL, NULL, NULL, MPI_INT, 0, MPI_COMM_WORLD);
+void sort(vector<int> &arr, int low, int high) {
+    if (low < high) {
+        int pivot_index = divide(arr, low, high);
+        sort(arr, low, pivot_index - 1);
+        sort(arr, pivot_index + 1, high);
     }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
+    const size_t arraySize = 1000000;
+    vector<int> array(arraySize);
+
     int rank, size;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    // Test case
-    int arr[MAX_SIZE];
-    int n = MAX_SIZE;
-    srand(time(NULL));
-    for (int i = 0; i < n; i++)
-    {
-        arr[i] = rand() ;
+
+    // Fill the vector with random numbers
+    srand(time(0) + rank);
+    for (size_t i = 0; i < arraySize; i++) {
+        array[i] = rand();
     }
-    double start_time, end_time;
-    start_time = MPI_Wtime();
-    parallel_quicksort(arr, n, rank, size);
-    end_time = MPI_Wtime();
-    if (rank == 0)
-    {
-        double execution_time_us = (end_time - start_time) * 1000000;
-        printf("Execution time (MPI): %.0f microseconds\n", execution_time_us);
+
+    // Scatter the array among processes
+    int chunkSize = arraySize / size;
+    vector<int> localArray(chunkSize);
+    MPI_Scatter(&array[0], chunkSize, MPI_INT, &localArray[0], chunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Sort the local array
+    auto startTime = high_resolution_clock::now();
+    sort(localArray, 0, localArray.size() - 1);
+    auto endTime = high_resolution_clock::now();
+
+    // Gather the sorted local arrays into the root process
+    vector<int> sortedArray(arraySize);
+    MPI_Gather(&localArray[0], chunkSize, MPI_INT, &sortedArray[0], chunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Display total time taken for sorting
+    if (rank == 0) {
+        auto elapsedTime = duration_cast<microseconds>(endTime - startTime);
+        cout << "Parallel Sorting took " << elapsedTime.count() << " microseconds." << endl;
     }
+
     MPI_Finalize();
     return 0;
 }
